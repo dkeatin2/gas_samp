@@ -1,9 +1,10 @@
 import logging
-
 import serial
 import time
 import os
 import pandas as pd
+
+csv_file = 'serial_test.csv'
 
 
 # Set up USB serial port for gas sampler
@@ -14,6 +15,11 @@ columns = ['Date', 'Time UTC', 'Latitude+', 'Latitude-', 'Data String Indicator'
 df = pd.DataFrame(columns=columns)
 
 while True:
-    line = ser.readline().decode('utf-8').strip()  # Read a line from the com port
-    measurements = line.split(' ')[:-55] # Split the line into measurements, assuming they are separated by spaces, removes unneccisary data
+
+    line = ser.readline().decode('ascii').strip()  # Read a line from the com port
+    measurements = line.split( )[4:-3] # Split the line into measurements, assuming they are separated by spaces, removes unneccisary data
+    #goes by index
     df = df.append(measurements, ignore_index=True)
+    print(line)
+    print(measurements)
+    #print(df)
