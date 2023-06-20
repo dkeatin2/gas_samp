@@ -71,7 +71,7 @@ def read_data():
     while True:
         try:
             ser.timeout = timeout  # set the timeout
-            line = ser.readline().decode('utf-8').strip()  # Read a line from the com port
+            line = ser.readline().decode('ascii').strip()  # Read a line from the com port. utf-8 decode is supposed to work but doesnt
 
             # Split the line into measurements, assuming they are separated by spaces, removes unneccisary data
             measurements = line.split(' ')[:-55]
