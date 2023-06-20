@@ -1,3 +1,15 @@
+#modifying the previous code to index through all valves and handle I2C communication.
+#skipping ingesting usb serial data for now, the gas sampler has it's own datalog
+
+#this should index through all valves attached to the raspi over GPIO
+#and record which valves were activated with time stamp.
+#the CSV produced can be combined with the gas sampler's data for complete result analysis
+
+
+
+
+
+
 import threading
 import serial
 import datetime
@@ -12,15 +24,14 @@ import pandas as pd
 # Set up logging
 logging.basicConfig(filename='status.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-csv_file = 'sensor_readings.csv'
+csv_file = 'valve_history.csv'
 autosave_interval = 60
 max_queue_size = 10000
 
-# Set up USB serial port for gas sampler
-ser = serial.Serial('/dev/ttyUSB0', 38400, timeout=1)
+columns = ['Date', 'Time UTC', 'Valve operating', 'current operation', 'leak fault?', 'total valve actuations', 'total run time']
+#example: date, time, valve_01, purge, N, 12349, 00:43:20:10
 
-columns = ['Date', 'Time UTC', 'Latitude+', 'Latitude-', 'Data String Indicator', 'DSP counter', 'CO2 PPMV', 'N2O PPBV',
-           'Pressure (Torr)', 'Temp (K)']
+
 df = pd.DataFrame(columns=columns)
 
 # Create a queue for communication between threads
@@ -42,6 +53,10 @@ purge_time = 10
 # pin assignments
 ledPin = 22  # status LED pin22
 
+
+# def leak_detection():
+#    this will detect leaks with either a dedicated thread or a watchdog in the main loop
+# if leak detected, pause data collection, sound alarm,
 
 # setup GPIO pins
 def setup():
@@ -73,7 +88,7 @@ def read_data():
             ser.timeout = timeout  # set the timeout
             line = ser.readline().decode('utf-8').strip()  # Read a line from the com port
 
-            # Split the line into measurements, assuming they are separated by spaces, removes unneccisary data
+            # Split the line into measurements, assuming they are separated by spaces
             measurements = line.split(' ')[:-55]
 
             # Check if the number of measurements matches the number of columns in the DataFrame
@@ -148,7 +163,21 @@ def controller():
         GPIO.output(valve_1_pin, GPIO.HIGH)
         time.sleep(sample_time)
 
-
+    # future implementation, index through the list of valves, remember to update status logger
+    # x = 0
+    # while x <= (max valve number)
+    # logging.info('purge')
+    # #purge vavle open for
+    # time.sleep(purge_time)
+    # Purge valve close
+    # logging.info('sampling with valve',x)
+    # sample valve[x] open for (sample_time)
+    # time.sleep(sample_time)
+    # timestamp+status
+    # sample valve[x] close
+    # x+1
+    # else
+    # x = 0
 
 
 def endprogram():

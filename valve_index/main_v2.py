@@ -8,6 +8,8 @@ import os
 import queue
 import logging
 import pandas as pd
+from smbus2 import SMBus
+
 
 # Set up logging
 logging.basicConfig(filename='status.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -27,8 +29,28 @@ df = pd.DataFrame(columns=columns)
 data_queue = queue.Queue()
 
 # set up variables
+#valves
 
+GPIO.setmode(GPIO.BOARD)  # Use physical pin numbering
+GPIO.setwarnings(False)
 
+# Define I2C bus. (1) is typically used for newer Raspberry Pis. If you're using an ancient pi, it might be (0)
+bus = SMBus(1)
+
+valve_time = 5  # replace with your time for each solenoid
+purge_pin = 7  # replace with your GPIO pin for the purge valve
+purge_time = 1  # replace with your time for the purge solenoid
+
+# setup the purge pin as output
+GPIO.setup(purge_pin, GPIO.OUT, initial=GPIO.LOW)
+
+# Define your I2C devices (Raspberry Pi Picos) along with the GPIOs they are controlling
+# deviceID: [ gpio pins]
+devices = {
+    1: [2, 3, 4],
+    2: [5, 6, 7],
+    # Add more devices as needed
+}
 # build list of total valves and assign them pin numbers, this will be usefull as we expand to breakout boards
 # valve = []
 
@@ -73,7 +95,7 @@ def read_data():
             ser.timeout = timeout  # set the timeout
             line = ser.readline().decode('utf-8').strip()  # Read a line from the com port
 
-            # Split the line into measurements, assuming they are separated by spaces, removes unneccisary data
+            # Split the line into measurements, assuming they are separated by spaces, removes unneccisary dat
             measurements = line.split(' ')[:-55]
 
             # Check if the number of measurements matches the number of columns in the DataFrame
