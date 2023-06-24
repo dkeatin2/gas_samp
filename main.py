@@ -12,7 +12,8 @@ import pandas as pd
 # Set up logging
 logging.basicConfig(filename='status.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-csv_file = 'sensor_readings.csv'
+csv_file = 'sensor_readings.csv' #move this to INSIDE the autosaver function and append datetime to filename
+
 autosave_interval = 60
 max_queue_size = 10000
 
@@ -25,8 +26,6 @@ df = pd.DataFrame(columns=columns)
 
 # Create a queue for communication between threads
 data_queue = queue.Queue()
-
-# set up variables
 
 
 # build list of total valves and assign them pin numbers, this will be usefull as we expand to breakout boards
@@ -54,15 +53,16 @@ def setup():
     GPIO.setup(valve_2_pin, GPIO.OUT)
 
 
+# depreciated
 # Define a function to append a row to the CSV file
-def append_to_csv(row, csv_file):
-    try:
-        if not os.path.isfile(csv_file):
-            row.to_csv(csv_file, index=False)
-        else:
-            row.to_csv(csv_file, mode='a', header=False, index=False)
-    except Exception as e:
-        logging.error("Error appending to CSV: %s", e)
+# def append_to_csv(row, csv_file):
+#     try:
+#         if not os.path.isfile(csv_file):
+#             row.to_csv(csv_file, index=False)
+#         else:
+#             row.to_csv(csv_file, mode='a', header=False, index=False)
+#     except Exception as e:
+#         logging.error("Error appending to CSV: %s", e)
 
 
 # read data from the com port in a separate thread
@@ -74,7 +74,7 @@ def read_data():
             line = ser.readline().decode('ascii').strip()  # Read a line from the com port. utf-8 decode is supposed to work but doesnt
 
             # Split the line into measurements, assuming they are separated by spaces, removes unneccisary data
-            measurements = line.split(' ')[:-55]
+            measurements = line.split(' ')[:-11]
 
             # Check if the number of measurements matches the number of columns in the DataFrame
             if len(measurements) == len(columns):
@@ -138,13 +138,11 @@ def controller():
 
         # Close the sample valve and open the purge valve
         GPIO.output(valve_1_pin, GPIO.LOW)
-        logging.info('purging manifold')
         GPIO.output(valve_2_pin, GPIO.HIGH)
         time.sleep(purge_time)
 
         # Close the purge valve, pen the sample valve
         GPIO.output(valve_2_pin, GPIO.LOW)
-        logging.info('sampling with valve')
         GPIO.output(valve_1_pin, GPIO.HIGH)
         time.sleep(sample_time)
 
@@ -168,12 +166,7 @@ def endprogram():
     print('Sensor readings saved.')
 
 
-def loop():
-    while True:
-        GPIO.output(ledPin, GPIO.HIGH)  # LED On
 
-        GPIO.output(ledPin, GPIO.LOW)  # LED Off
-        time.sleep(1.0)  # wait 1 sec
 
 
 # Create separate threads for reading data from the com port and auto-saving

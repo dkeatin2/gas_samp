@@ -8,213 +8,80 @@ import os
 import queue
 import logging
 import pandas as pd
-from smbus2 import SMBus
 
 
-# Set up logging
-logging.basicConfig(filename='status.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-csv_file = 'sensor_readings.csv'
+    #---- setup function instantiates all one-time setup variables ----
+
+#setup threading
+data_queue = queue.Queue() # Create a queue for communication between threads
+
+#setting up autosaver
 autosave_interval = 60
 max_queue_size = 10000
 
-# Set up USB serial port for gas sampler
-ser = serial.Serial('/dev/ttyUSB0', 38400, timeout=1)
 
-columns = ['Date', 'Time UTC', 'Latitude+', 'Latitude-', 'Data String Indicator', 'DSP counter', 'CO2 PPMV', 'N2O PPBV',
-           'Pressure (Torr)', 'Temp (K)']
+#setting up data reading and recording
+ser = serial.Serial('/dev/ttyUSB0', 38400, timeout=1)
+columns = ['Date', 'Time UTC', 'Latitude+', 'Latitude-',
+           'Data String Indicator','DSP counter', 'CO2 PPMV',
+           'N2O PPBV','Pressure (Torr)', 'Temp (K)','Active Valve']
+
 df = pd.DataFrame(columns=columns)
 
-# Create a queue for communication between threads
-data_queue = queue.Queue()
+#setup valve_controller
+#GPIO/UART/I2C setup stuff goes here
+active_valve = 00
 
-# set up variables
-#valves
-
-GPIO.setmode(GPIO.BOARD)  # Use physical pin numbering
-GPIO.setwarnings(False)
-
-# Define I2C bus. (1) is typically used for newer Raspberry Pis. If you're using an ancient pi, it might be (0)
-bus = SMBus(1)
-
-valve_time = 5  # replace with your time for each solenoid
-purge_pin = 7  # replace with your GPIO pin for the purge valve
-purge_time = 1  # replace with your time for the purge solenoid
-
-# setup the purge pin as output
-GPIO.setup(purge_pin, GPIO.OUT, initial=GPIO.LOW)
-
-# Define your I2C devices (Raspberry Pi Picos) along with the GPIOs they are controlling
-# deviceID: [ gpio pins]
-devices = {
-    1: [2, 3, 4],
-    2: [5, 6, 7],
-    # Add more devices as needed
-}
-# build list of total valves and assign them pin numbers, this will be usefull as we expand to breakout boards
-# valve = []
-
-valve_1_pin = 16  # gpio pin for valve 1 and soforth
-valve_2_pin = 18  # gpio pin for purge valve?
-
-# time values below are a stand-in till we know how long it takes for sample gas to reach the sampler
-sample_time = 10
-purge_time = 10
-
-# pin assignments
-ledPin = 22  # status LED pin22
+def auto_saver():
+    #auto_saver will write data buffer to a timestamped CSV file every 10k lines or so.
+    #This is to prevent the buffer from overfilling, but also to have some layer of data redundancy
 
 
-# setup GPIO pins
-def setup():
-    GPIO.setmode(GPIO.BOARD)  # GPIO Numbering of Pins
-    GPIO.setup(ledPin, GPIO.OUT)  # Set ledPin as output
-    GPIO.output(ledPin, GPIO.LOW)  # Set ledPin to LOW to turn Off the LED
-    GPIO.setmode(GPIO.BOARD)
-    GPIO.setup(ledPin, GPIO.OUT)
-    GPIO.setup(valve_1_pin, GPIO.OUT)
-    GPIO.setup(valve_2_pin, GPIO.OUT)
+    csv_file = 'sensor_readings.csv'  #append datetime to filename
+    # #put df into sensor_readings
 
 
-# Define a function to append a row to the CSV file
-def append_to_csv(row, csv_file):
-    try:
-        if not os.path.isfile(csv_file):
-            row.to_csv(csv_file, index=False)
-        else:
-            row.to_csv(csv_file, mode='a', header=False, index=False)
-    except Exception as e:
-        logging.error("Error appending to CSV: %s", e)
-
-
-# read data from the com port in a separate thread
-def read_data():
-    timeout = 10  # set a timeout of 10 seconds
+def serial_reader():
+    # Reads serial into buffer, transposes to match columns, appends active_valve
     while True:
-        try:
-            ser.timeout = timeout  # set the timeout
-            line = ser.readline().decode('utf-8').strip()  # Read a line from the com port
+        line = ser.readline().decode('ascii').strip()  # Read a line from the com port
+        measurements = line.split()[:-11]  # Split the line into measurements, assuming they are separated by spaces, removes unneccisary data
+        measurements.append(active_valve)  #append active_valve to end of measurements
+        data_dict = dict(zip(columns, measurements))  # Convert measurements to a dictionary
+        df = df.append(data_dict, ignore_index=True)  # Append dictionary to DataFrame
 
-            # Split the line into measurements, assuming they are separated by spaces, removes unneccisary dat
-            measurements = line.split(' ')[:-55]
-
-            # Check if the number of measurements matches the number of columns in the DataFrame
-            if len(measurements) == len(columns):
-
-                # Convert the measurements to floats and create a new DataFrame row
-                data = {}
-                for column, value in zip(columns, measurements):
-                    if value.isnumeric():
-                        data[column] = float(value)
-                    else:
-                        data[column] = value
-                row = pd.DataFrame(data, columns=columns, index=[0])
-
-                # Append the row to the CSV file
-                append_to_csv(row, csv_file)
-
-                # Check if the queue size is within limits before adding the row
-                if data_queue.qsize() < max_queue_size:
-                    data_queue.put(row)
-                else:
-                    logging.warning("Queue size limit reached, discarding the oldest data.")
-                    data_queue.get()
-                    data_queue.put(row)
-            else:
-                logging.warning("Received an improperly formatted line, skipping.")
-        except Exception as e:
-            logging.error("Error appending to CSV: %s", e)
-
-
-# Define a function to auto-save and reset the DataFrame in a separate thread
-def auto_save_data():
-    global df
-    count = 0
-
+def valve_controller():
     while True:
-        try:
-            # Get the next row from the queue
-            row = data_queue.get()
-
-            # Add the row to the DataFrame
-            df = df.append(row, ignore_index=True)
-            count += 1
-
-            # Auto-save and reset the DataFrame after a certain number of readings
-            if count >= autosave_interval:
-                df.to_csv('autosave_{}_{}'.format(int(time.time()), csv_file), index=False)
-                df = pd.DataFrame(columns=columns)
-                count = 0
-        except Exception as e:
-            logging.error('Error appending to CSV: %s', e)
-
-
-def controller():
-    while True:
-        # now = datetime.datetime.now()
-        # timestamp = now.strftime('%Y-%m-%d %H:%M:%S')
-        # with open('data.csv', 'a') as f:
-        # 	status = 'Sampled and purged successfully'
-        # 	data = ','.join([timestamp, '', status])
-        # 	f.write(data + '\n')
-
-        # Close the sample valve and open the purge valve
-        GPIO.output(valve_1_pin, GPIO.LOW)
-        logging.info('purging manifold')
-        GPIO.output(valve_2_pin, GPIO.HIGH)
-        time.sleep(purge_time)
-
-        # Close the purge valve, pen the sample valve
-        GPIO.output(valve_2_pin, GPIO.LOW)
-        logging.info('sampling with valve')
-        GPIO.output(valve_1_pin, GPIO.HIGH)
-        time.sleep(sample_time)
-
-
+        #run valves through dictonary of valves/devices
+        #update variable 'active_valve' with global for the data logger function
+        global active_valve
 
 
 def endprogram():
-    GPIO.output(ledPin, GPIO.LOW)  # LED Off
-    GPIO.output(valve_1_pin, GPIO.LOW)
-    GPIO.output(valve_2_pin, GPIO.LOW)
-    GPIO.cleanup()  # Release resources
+    #set all gpio pin to off
 
-    # Close the serial connection when the script is interrupted
+    #close serial connection
     ser.close()
 
-    # Save the remaining readings in the DataFrame to a CSV file
-    df.to_csv('autosave_{}_{}'.format(int(time.time()), csv_file), index=False)
+    #save remaining readings to csv?
 
-    # Log the termination of the script
-    logging.info('Sensor readings saved, script terminated.')
-    print('Sensor readings saved.')
-
-
-def loop():
-    while True:
-        GPIO.output(ledPin, GPIO.HIGH)  # LED On
-
-        GPIO.output(ledPin, GPIO.LOW)  # LED Off
-        time.sleep(1.0)  # wait 1 sec
-
+    #log termination of script
 
 # Create separate threads for reading data from the com port and auto-saving
-data_thread = threading.Thread(target=read_data)
-auto_save_thread = threading.Thread(target=auto_save_data)
+serial_reader_thread = threading.Thread(target=serial_reader)
+auto_saver_thread = threading.Thread(target=auto_saver)
 
-# Start the data and auto-save threads
-data_thread.start()
-auto_save_thread.start()
+#start both threads
+serial_reader_thread.start()
+auto_saver_thread.start()
 
-if __name__ == '__main__':
-    # set up GPIO pins
-    setup()
+if __name__ == '__main_v2__':
+    #setup()
 
     try:
-        # run main loop
-        controller()
-        while True:
-            # Keep the main thread running while the data and auto-save threads are working
-            time.sleep(1)
-    except KeyboardInterrupt:  # When 'Ctrl+C' is pressed, the destroy() will be  executed.
+        valve_controller()
+
+    except KeyboardInterrupt: #when keyboardinterrupt, activate following
         endprogram()
+        #In the future, add a way to detect power loss and exicute endprogram() to gracefully shutdown.

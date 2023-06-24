@@ -14,6 +14,7 @@ columns = ['Date', 'Time UTC', 'Latitude+', 'Latitude-','Data String Indicator',
            'Pressure (Torr)', 'Temp (K)'] #removed ('Date', 'Time UTC', 'Latitude+', 'Latitude-',)
 df = pd.DataFrame(columns=columns)
 
+
 while True:
 
     line = ser.readline().decode('ascii').strip()  # Read a line from the com port
